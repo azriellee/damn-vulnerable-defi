@@ -81,7 +81,9 @@ contract UnstoppableVault is IERC3156FlashLender, ReentrancyGuard, Owned, ERC462
     {
         if (amount == 0) revert InvalidAmount(0); // fail early
         if (address(asset) != _token) revert UnsupportedCurrency(); // enforce ERC3156 requirement
-        uint256 balanceBefore = totalAssets();
+        uint256 balanceBefore = totalAssets(); // initially 1000000
+        // @audit-issue convertToShares makes sure that (total shares)/(total assets) is always 1, if assets transferred directly to vault will cause this check to fail
+        // @audit-issue this is a problem because the contract will always revert, hence becoming a DOS attack
         if (convertToShares(totalSupply) != balanceBefore) revert InvalidBalance(); // enforce ERC4626 requirement
 
         // transfer tokens out + execute callback on receiver
