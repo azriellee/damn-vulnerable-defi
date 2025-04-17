@@ -12,6 +12,8 @@ contract FlashLoanReceiver is IERC3156FlashBorrower {
         pool = _pool;
     }
 
+    // @audit-info This function does not check that the initiator is the pool or an allowed address
+    // @audit-info Exploit: This receiver can be drained by a third party calling this function
     function onFlashLoan(address, address token, uint256 amount, uint256 fee, bytes calldata)
         external
         returns (bytes32)

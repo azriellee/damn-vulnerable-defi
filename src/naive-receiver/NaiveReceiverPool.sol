@@ -63,6 +63,7 @@ contract NaiveReceiverPool is Multicall, IERC3156FlashLender {
         return true;
     }
 
+    // @audit-info If msgSender is manipulated successfully to the address of the pool, will drain the pool of funds
     function withdraw(uint256 amount, address payable receiver) external {
         // Reduce deposits
         deposits[_msgSender()] -= amount;
@@ -83,6 +84,9 @@ contract NaiveReceiverPool is Multicall, IERC3156FlashLender {
         totalDeposits += amount;
     }
 
+    // @audit-info This explicitly trusts the request.from address sent from the forwarder, which can
+    // be manipulated into any address when using multicall function, as the ending 20 bytes that the forwarder appends
+    // request.from's address is not sent together with each delegatecall within multicall
     function _msgSender() internal view override returns (address) {
         if (msg.sender == trustedForwarder && msg.data.length >= 20) {
             return address(bytes20(msg.data[msg.data.length - 20:]));
