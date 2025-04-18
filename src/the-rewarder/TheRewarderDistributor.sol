@@ -99,6 +99,7 @@ contract TheRewarderDistributor {
                 bitsSet = 1 << bitPosition; // set bit at given position
                 amount = inputClaim.amount;
             } else {
+                // @audit-info:  i can pass in multiple claims for the same token to drain, since setClaimed only set if token not set yet
                 bitsSet = bitsSet | 1 << bitPosition;
                 amount += inputClaim.amount;
             }

