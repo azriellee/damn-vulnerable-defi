@@ -20,6 +20,8 @@ contract SimpleGovernance is ISimpleGovernance {
         _actionCounter = 1;
     }
 
+    // @audit-info i can use flashloan from the pool to get enough votes to queue an action
+    // this action can call the selfiepool to drain the tokens within the pool
     function queueAction(address target, uint128 value, bytes calldata data) external returns (uint256 actionId) {
         if (!_hasEnoughVotes(msg.sender)) {
             revert NotEnoughVotes(msg.sender);
