@@ -27,6 +27,9 @@ contract Exchange is ReentrancyGuard {
         oracle = TrustfulOracle(_oracle);
     }
 
+    // @audit-info im guessing the issue here is that the money retured to the buyer is not checked?
+    // can i have overflow so that i send all the ether to the buyer?
+    // actually i think thats impossible because if underflow the sendvalue would revert if the wallet does not have enough balance
     function buyOne() external payable nonReentrant returns (uint256 id) {
         if (msg.value == 0) {
             revert InvalidPayment();
@@ -34,6 +37,7 @@ contract Exchange is ReentrancyGuard {
 
         // Price should be in [wei / NFT]
         uint256 price = oracle.getMedianPrice(token.symbol());
+        // i guess this check also prevents underflow attacks?
         if (msg.value < price) {
             revert InvalidPayment();
         }

