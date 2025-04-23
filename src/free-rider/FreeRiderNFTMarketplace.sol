@@ -93,7 +93,7 @@ contract FreeRiderNFTMarketplace is ReentrancyGuard {
         if (priceToPay == 0) {
             revert TokenNotOffered(tokenId);
         }
-
+        // @audit-info: The same msg.value is reused for each token, so i just need 15 eth to be able to buy all the NFTs
         if (msg.value < priceToPay) {
             revert InsufficientPayment();
         }
@@ -105,6 +105,7 @@ contract FreeRiderNFTMarketplace is ReentrancyGuard {
         _token.safeTransferFrom(_token.ownerOf(tokenId), msg.sender, tokenId);
 
         // pay seller using cached token
+        // @audit-info: This uses the funds locked within the fund's LP, not transferring from buyer to NFT owner. So the vulnerability exists
         payable(_token.ownerOf(tokenId)).sendValue(priceToPay);
 
         emit NFTBought(msg.sender, tokenId, priceToPay);

