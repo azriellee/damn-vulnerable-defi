@@ -27,6 +27,7 @@ contract ClimberTimelock is ClimberTimelockBase {
      * @param admin address of the account that will hold the ADMIN_ROLE role
      * @param proposer address of the account that will hold the PROPOSER_ROLE role
      */
+     // @audit-info: So technically both admin_role and proposer_role are the same?
     constructor(address admin, address proposer) {
         _setRoleAdmin(ADMIN_ROLE, ADMIN_ROLE);
         _setRoleAdmin(PROPOSER_ROLE, ADMIN_ROLE);
@@ -69,6 +70,13 @@ contract ClimberTimelock is ClimberTimelockBase {
     /**
      * Anyone can execute what's been scheduled via `schedule`
      */
+     // Can i use this to execute a malicious function?? can i use this to call the updateDelay function to set delay to 0???
+     // first function call to updateDelay to set delay to 0
+     // second function call to grant itself with PROPOSER_ROLE (since this contract has ADMIN_ROLE) 
+     // third function call to "schedule" with the exact function signature im passing (this would make it such that when getOperationState is called,
+     // it will return with ReadyForExecution state because delay is 0)
+     // fourth function call to execute the authorizeupgrade function within the vault to my address
+     // finally, transfer all the tokens to the recovery :)
     function execute(address[] calldata targets, uint256[] calldata values, bytes[] calldata dataElements, bytes32 salt)
         external
         payable
@@ -87,10 +95,11 @@ contract ClimberTimelock is ClimberTimelockBase {
 
         bytes32 id = getOperationId(targets, values, dataElements, salt);
 
+        // @audit-info i can exploit this because this is being called first before checking the operation state!!
         for (uint8 i = 0; i < targets.length; ++i) {
             targets[i].functionCallWithValue(dataElements[i], values[i]);
         }
-
+        
         if (getOperationState(id) != OperationState.ReadyForExecution) {
             revert NotReadyForExecution(id);
         }

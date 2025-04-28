@@ -3,6 +3,7 @@
 pragma solidity =0.8.25;
 
 import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
+import "forge-std/console.sol";
 
 abstract contract ClimberTimelockBase is AccessControl {
     // Possible states for an operation in this timelock contract

