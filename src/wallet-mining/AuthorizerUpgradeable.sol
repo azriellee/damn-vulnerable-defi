@@ -3,6 +3,7 @@
 pragma solidity =0.8.25;
 
 contract AuthorizerUpgradeable {
+    // @audit-info: storage collision with the proxy
     uint256 public needsInit = 1;
     mapping(address => mapping(address => uint256)) private wards;
 

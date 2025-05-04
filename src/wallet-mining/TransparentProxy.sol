@@ -25,6 +25,7 @@ contract TransparentProxy is ERC1967Proxy {
         return who == upgrader;
     }
 
+    // @audit-info: I need to send setUpgrader from the auhtorizerfactory to authorize my account to be an upgrader?
     function _fallback() internal override {
         if (isUpgrader(msg.sender)) {
             require(msg.sig == bytes4(keccak256("upgradeToAndCall(address, bytes)")));

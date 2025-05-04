@@ -34,6 +34,7 @@ contract WalletDeployer {
     /**
      * @notice Allows the chief to set an authorizer contract.
      */
+     // @audit-info: chief will only get to do this once, kinda like an initialiser for the mom variable
     function rule(address _mom) external {
         if (msg.sender != chief || _mom == address(0) || mom != address(0)) {
             revert Boom();
